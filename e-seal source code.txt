@@ -1,0 +1,183 @@
+ #include <WiFi.h>
+#include "time.h"
+#include <SoftwareSerial.h>
+#include <TinyGPS.h>
+
+#include <HTTPClient.h>
+#define solenoidpin  13    //defines solenoid @pin 3
+
+TinyGPS gps;
+SoftwareSerial serialgps(5,18);
+
+float latitude, longitude;
+const char* ssid       = "kavi";
+const char* password   = "kavi12345";
+const char* host = "grievous-spot.000webhostapp.com";
+const int httpPort = 80;
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 19800;
+const int   daylightOffset_sec = 19800;
+char day[10],mon[10],date[3],year[5],hour[3],min1[3],sec[3];
+
+
+int Year;
+byte month, dayg, hourg, minute, second, hundredths;
+unsigned long chars;
+unsigned short sentences, failed_checksum;
+
+
+char* lat="11";
+char* lon="76";
+int sensorPin = 23;    // select the input pin for the potentiometer
+int sensorValue = 0;  // variable to store the value coming from the sensor
+int count=1;
+      int h=1;
+      struct tm timeinfo;
+void printLocalTime()
+{
+  
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.print(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+   strftime(day, sizeof(day), "%A, ", &timeinfo);
+  strftime(mon, sizeof(mon), "%B, ", &timeinfo);
+  strftime(date, sizeof(date), "%d, ", &timeinfo);
+  strftime(year, sizeof(year), "%Y, ", &timeinfo);
+  strftime(hour, sizeof(hour), "%H, ", &timeinfo);
+  strftime(min1, sizeof(min1), "%M, ", &timeinfo);
+  strftime(sec, sizeof(sec), "%S, ", &timeinfo);
+}
+
+
+void setup() {
+  Serial.begin(9600);
+  serialgps.begin(9600);
+  //connect to WiFi
+  Serial.printf("Connecting to %s ", ssid);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+  }
+  Serial.println(" CONNECTED");
+  pinMode(solenoidpin, OUTPUT); //sets solenoid as Output
+  digitalWrite(solenoidpin, LOW);
+  //init and get the time
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  Serial.println();
+  Serial.print(" Seal id: 06032016.........Initiated on :");
+  printLocalTime();
+  Serial.println();
+
+  //disconnect WiFi as it's no longer needed
+  
+}
+
+void loop() {
+  //Serial.write(0x0C);
+  
+  
+  //Serial.print(" Seal Initiated on :");
+  //Serial.print(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+  Serial.println();
+  sensorValue = digitalRead(sensorPin);
+  //if(count)
+  //Serial.println(sensorValue);
+
+   WiFiClient client;
+  
+
+  while(!client.connect(host, httpPort)) {
+    Serial.println("connection failed");
+     }
+    HTTPClient http;
+ 
+    http.begin("https://grievous-spot.000webhostapp.com/api/readall1.php?id=1"); //Specify the URL
+    int httpCode = http.GET();                                        //Make the request
+ 
+    if (httpCode > 0) { //Check for the returning code
+ 
+        String payload = http.getString();
+        //Serial.println(httpCode);
+        //Serial.println(payload);
+        if(payload.charAt(47)=='l' && count){
+          Serial.print(" Seal id : 06032016.........");
+        Serial.println("Locked ");
+        digitalWrite(solenoidpin, LOW);
+        //count=1;
+        if(sensorValue==LOW && count)
+  {
+    Serial.print(" Seal id : 06032016.......... Tampered on :");
+    printLocalTime();
+    //break;
+    count=0;
+
+    while(h){
+while(serialgps.available())
+{
+int c = serialgps.read();
+if(gps.encode(c))
+{
+
+gps.f_get_position(&latitude, &longitude);
+Serial.print("Lat/Long: ");
+Serial.print(latitude,6);
+Serial.print(", ");
+Serial.println(longitude,6);
+/*gps.crack_datetime(&Year,&month,&dayg,&hourg,&minute,&second,&hundredths);
+String Date=String(dayg,DEC);
+String Month=String(month,DEC);
+String Hour=String(hourg ,DEC);
+String Minute=String(minute ,DEC);
+String Second=String(second ,DEC);
+Serial.println(""+Date+"/"+Month+"/"+Year+"  "+Hour+":"+Minute+":"+Second);*/
+h=0;
+}
+}
+  }
+  
+  
+  String url= "/api/INSERT.php?day="+String(date)+"&month=January&year="+String(year)+"&hour="+String(hour)+"&min="+String(min1)+"&sec="+String(sec)+"&tamperedstatus=YES&longitude="+String(longitude)+"&latitude="+String(latitude);
+  //String url = "/api/INSERT.php?day="+String(date)+"&month="+String(mon)+"&year="+String(year)+"&hour="+String(hour)+"&min="+String(min1)+"&sec="+String(sec)+"&tamperedstatus=yes&longitude="+String(lon)+"&latitude="+String(lat);
+  //Serial.println("Requesting URL: ");
+  //Serial.println(url);
+  
+  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+               "Host: " + host + "\r\n" + 
+               "Connection: close\r\n\r\n");
+ // delay(500);
+  
+  while(client.available()){
+    String line = client.readStringUntil('\r');
+    //Serial.print(line);
+  }
+  
+  Serial.println();
+  Serial.println("closing connection");
+  //delay(3000);
+
+    
+  }
+
+
+        
+        }
+        else if( payload.charAt(47)=='u' && count){
+          Serial.print(" Seal id : 06032016..........");
+        Serial.println(" Unlocked ");
+        digitalWrite(solenoidpin, HIGH);
+        //count=0;
+        }
+      }
+ 
+    else if(count)
+    {
+      //Serial.println("Error on HTTP request");
+    }
+ 
+    http.end(); //Free the reso
+  
+  delay(500);
+}
